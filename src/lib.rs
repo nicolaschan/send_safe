@@ -1,8 +1,5 @@
-use crossbeam::channel::{bounded, unbounded, Receiver, RecvError, Sender};
-use std::{
-    any::Any,
-    sync::{Arc, Mutex},
-};
+use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
+use std::any::Any;
 use thiserror::Error;
 
 #[cfg(test)]
@@ -21,14 +18,18 @@ mod tests {
 
         // Use `wrapper` to interact with `x` from inside a different thread.
         std::thread::spawn(move || {
-            let x_plus_1 = wrapper.execute(|x| {
-                // The Box is just for demonstrating wrapping a raw pointer.
-                // This doesn't have to be unsafe if you were using different types.
-                let unboxed_x = unsafe { Box::from_raw(*x) };
-                *unboxed_x + 1
-            }).unwrap();
+            let x_plus_1 = wrapper
+                .execute(|x| {
+                    // The Box is just for demonstrating wrapping a raw pointer.
+                    // This doesn't have to be unsafe if you were using different types.
+                    let unboxed_x = unsafe { Box::from_raw(*x) };
+                    *unboxed_x + 1
+                })
+                .unwrap();
             assert_eq!(x_plus_1, 42);
-        }).join().unwrap()
+        })
+        .join()
+        .unwrap()
     }
 
     #[test]
@@ -103,7 +104,8 @@ mod tests {
     #[test]
     fn test_no_response_error() {
         let mut wrapper = SendWrapperThread::new(|| ());
-        let result: Result<usize, ExecutionError> = wrapper.execute_consume(|_inner| panic!("panic!"));
+        let result: Result<usize, ExecutionError> =
+            wrapper.execute_consume(|_inner| panic!("panic!"));
         assert!(matches!(result, Err(ExecutionError::NoResponseError(..))));
         format!("{:?}", result); // should implement debug
         format!("{:#?}", result); // should implement format
@@ -191,10 +193,11 @@ impl<T: 'static> SendWrapperThread<T> {
         &mut self,
         closure: impl (FnOnce(&mut T) -> U) + Send + 'static,
     ) -> Result<U, ExecutionError> {
-        let wrapped_closure: Box<dyn (FnOnce(T) -> (Option<T>, U)) + Send + 'static> = Box::new(|mut inner| {
-            let return_value = closure(&mut inner);
-            (Some(inner), return_value)
-        });
+        let wrapped_closure: Box<dyn (FnOnce(T) -> (Option<T>, U)) + Send + 'static> =
+            Box::new(|mut inner| {
+                let return_value = closure(&mut inner);
+                (Some(inner), return_value)
+            });
         self.execute_consume(wrapped_closure)
     }
 
