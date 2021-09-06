@@ -30,7 +30,7 @@ std::thread::spawn(move || {
         *unboxed_x + 1
     }).unwrap();
     assert_eq!(x_plus_1, 42);
-}).join().unwrap(
+}).join().unwrap()
 ```
 
 ## Acknowledgements
