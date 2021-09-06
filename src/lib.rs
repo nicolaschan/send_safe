@@ -5,7 +5,7 @@ use thiserror::Error;
 mod tests {
     use std::{sync::{Arc, Mutex, mpsc::{Receiver, Sender, channel}}};
 
-    use crate::{ExecutionError, SendWrapper};
+    use crate::{ExecutionError, SendWrapperThread};
 
     #[test]
     fn test_send_pointer() {
@@ -13,7 +13,7 @@ mod tests {
             let my_box = Box::new(42);
             Box::into_raw(my_box)
         };
-        let mut send_pointer = SendWrapper::new(make_pointer);
+        let mut send_pointer = SendWrapperThread::new(make_pointer);
 
         let return_value_mutex: Arc<Mutex<Option<u128>>> = Arc::new(Mutex::new(None));
         let return_value_mutex_clone = return_value_mutex.clone();
@@ -35,7 +35,7 @@ mod tests {
     fn test_drop() {
         let (sender, receiver): (Sender<()>, Receiver<()>) = channel();
         {
-            SendWrapper::new(move || receiver);
+            SendWrapperThread::new(move || receiver);
         }
         assert!(sender.send(()).is_err());
     }
@@ -43,7 +43,7 @@ mod tests {
     #[test]
     fn test_manually_dropped() {
         let (sender, receiver): (Sender<()>, Receiver<()>) = channel();
-        let mut wrapper = SendWrapper::new(move || receiver);
+        let mut wrapper = SendWrapperThread::new(move || receiver);
         assert!(sender.send(()).is_ok());
         assert!(wrapper.is_alive());
         drop(wrapper);
@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn test_dropped_when_closure_consumes_value() {
         let (sender, receiver): (Sender<()>, Receiver<()>) = channel();
-        let mut wrapper = SendWrapper::new(move || receiver);
+        let mut wrapper = SendWrapperThread::new(move || receiver);
         assert!(sender.send(()).is_ok());
         assert!(wrapper.is_alive());
         wrapper.execute(|_inner| (None, ())).unwrap();
@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn test_could_not_send_error() {
-        let mut wrapper = SendWrapper::new(|| ());
+        let mut wrapper = SendWrapperThread::new(|| ());
         wrapper.execute(|_inner| (None, ())).unwrap();
         let result =  wrapper.execute(|_inner| (None, ()));
         assert!(matches!(result, Err(ExecutionError::CouldNotSendError(..))));
@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn test_no_response_error() {
-        let mut wrapper = SendWrapper::new(|| ());
+        let mut wrapper = SendWrapperThread::new(|| ());
         let result: Result<usize, ExecutionError> = wrapper.execute(|_inner| panic!("panic!"));
         assert!(matches!(result, Err(ExecutionError::NoResponseError(..))));
         format!("{:?}", result); // should implement debug
@@ -94,13 +94,13 @@ struct SendCommand<T> {
     closure: Box<RemoteExecutorClosure<T>>
 }
 
-pub struct SendWrapper<T: 'static> {
+pub struct SendWrapperThread<T: 'static> {
     sender: Sender<SendCommand<T>>,
     receiver: Receiver<Box<dyn Any + Send>>,
 }
 
-impl<T: 'static> SendWrapper<T> {
-    pub fn new(make_inner: impl (FnOnce() -> T) + Send + 'static) -> SendWrapper<T> {
+impl<T: 'static> SendWrapperThread<T> {
+    pub fn new(make_inner: impl (FnOnce() -> T) + Send + 'static) -> SendWrapperThread<T> {
         let (inside_sender, outside_receiver) = channel();
         let (outside_sender, inside_receiver): (Sender<SendCommand<T>>, Receiver<SendCommand<T>>) = channel();
         std::thread::spawn(move || {
@@ -121,7 +121,7 @@ impl<T: 'static> SendWrapper<T> {
                 }
             }
         });
-        SendWrapper {
+        SendWrapperThread {
             sender: outside_sender,
             receiver: outside_receiver,
         }
@@ -153,7 +153,7 @@ impl<T: 'static> SendWrapper<T> {
     }
 }
 
-impl<T: 'static> Drop for SendWrapper<T> {
+impl<T: 'static> Drop for SendWrapperThread<T> {
     fn drop(&mut self) {
         let result = self.execute(|_inner| {
             (None, ())

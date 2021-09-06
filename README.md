@@ -5,7 +5,7 @@ Suppose you have a variable `x` of type `T` which is not `Send`.
 We want to use `x` from other threads.
 But `T` is not `Send`, so we cannot move `x` across threads.
 
-This crate provides `SendWrapper` which will create `x` in its own thread.
+This crate provides `SendWrapperThread` which will create `x` in its own thread.
 Then you can interact with `x` from other threads through the wrapper.
 
 This is safe because `x` always stays on its own dedicated thread.
@@ -16,10 +16,10 @@ The thread exits and `x` is dropped when the wrapper is dropped.
 Suppose `x` is a raw pointer, which is not `Send`:
 
 ```rust
-use send_safe::SendWrapper;
+use send_safe::SendWrapperThread;
 
 let make_x = || Box::into_raw(Box::new(41));
-let mut wrapper = SendWrapper::new(make_x);
+let mut wrapper = SendWrapperThread::new(make_x);
 
 // Use `wrapper` to interact with `x` from inside a different thread.
 std::thread::spawn(move || {
