@@ -12,17 +12,17 @@ mod tests {
     use crate::{ExecutionError, SendWrapperThread};
 
     #[test]
-    fn test_example() {
+    fn test_execute_example() {
         let make_x = || Box::into_raw(Box::new(41));
         let mut wrapper = SendWrapperThread::new(make_x);
 
         // Use `wrapper` to interact with `x` from inside a different thread.
         std::thread::spawn(move || {
             let x_plus_1 = wrapper
-                .execute(|x| {
+                .execute(|&mut x| {
                     // The Box is just for demonstrating wrapping a raw pointer.
                     // This doesn't have to be unsafe if you were using different types.
-                    let unboxed_x = unsafe { Box::from_raw(*x) };
+                    let unboxed_x = unsafe { Box::from_raw(x) };
                     *unboxed_x + 1
                 })
                 .unwrap();
@@ -104,8 +104,7 @@ mod tests {
     #[test]
     fn test_no_response_error() {
         let mut wrapper = SendWrapperThread::new(|| ());
-        let result: Result<usize, ExecutionError> =
-            wrapper.execute_move(|_inner| panic!("panic!"));
+        let result: Result<usize, ExecutionError> = wrapper.execute_move(|_inner| panic!("panic!"));
         assert!(matches!(result, Err(ExecutionError::NoResponseError(..))));
         format!("{:?}", result); // should implement debug
         format!("{:#?}", result); // should implement format

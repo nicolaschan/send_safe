@@ -1,5 +1,5 @@
 # send_safe
-> Safely convert Rust types to `Send`.
+> Safely convert Rust types to `Send`
 
 Suppose you have a variable `x` of type `T` which is not `Send`.
 We want to use `x` from other threads.
@@ -32,6 +32,8 @@ std::thread::spawn(move || {
     assert_eq!(x_plus_1, 42);
 }).join().unwrap()
 ```
+
+Use `wrapper.execute_move` if you want to take ownership and possibly consume `x`.
 
 ## Acknowledgements
 Thanks to [@pirocks](https://github.com/pirocks/) for advice and debugging help.
