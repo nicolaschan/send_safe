@@ -1,5 +1,5 @@
 use std::{any::Any, sync::{Arc, Mutex}};
-use crossbeam::channel::{Receiver, RecvError, Sender, unbounded};
+use crossbeam::channel::{Receiver, RecvError, Sender, bounded, unbounded};
 use thiserror::Error;
 
 #[cfg(test)]
@@ -93,20 +93,18 @@ pub enum ExecutionError {
 
 type RemoteExecutorClosure<T> = dyn (FnOnce(T) -> (Option<T>, Box<dyn Any + Send>)) + Send;
 struct SendCommand<T> {
-    closure: Box<RemoteExecutorClosure<T>>
+    closure: Box<RemoteExecutorClosure<T>>,
+    return_sender: Sender<Box<dyn Any + Send>>,
 }
 
 #[derive(Clone)]
 pub struct SendWrapperThread<T: 'static> {
-    lock: Arc<Mutex<()>>,
     sender: Sender<SendCommand<T>>,
-    receiver: Receiver<Box<dyn Any + Send>>,
 }
 
 impl<T: 'static> SendWrapperThread<T> {
     pub fn new(make_inner: impl (FnOnce() -> T) + Send + 'static) -> SendWrapperThread<T> {
-        let (inside_sender, outside_receiver) = unbounded();
-        let (outside_sender, inside_receiver): (Sender<SendCommand<T>>, Receiver<SendCommand<T>>) = unbounded();
+        let (outside_sender, inside_receiver): (Sender<SendCommand<T>>, Receiver<SendCommand<T>>) = bounded(1);
         std::thread::spawn(move || {
             let mut inner = make_inner();
             while let Ok(message) = inside_receiver.recv() {
@@ -116,20 +114,18 @@ impl<T: 'static> SendWrapperThread<T> {
                 match inner_option {
                     Some(new_inner) => {
                         inner = new_inner;
-                        inside_sender.send(return_value).expect("Failed to exfiltrate return values"); 
+                        message.return_sender.send(return_value).expect("Failed to exfiltrate return values"); 
                     },
                     None => {
                         drop(inside_receiver);
-                        inside_sender.send(return_value).expect("Failed to exfiltrate return values"); 
+                        message.return_sender.send(return_value).expect("Failed to exfiltrate return values"); 
                         return;
                     },
                 };
             }
         });
         SendWrapperThread {
-            lock: Arc::new(Mutex::new(())),
             sender: outside_sender,
-            receiver: outside_receiver,
         }
     }
 
@@ -139,15 +135,15 @@ impl<T: 'static> SendWrapperThread<T> {
             let return_value_casted = Box::new(return_value);
             (new_inner, return_value_casted)
         });
+        let (inside_sender, outside_receiver) = bounded(1);
         let send_message = SendCommand {
-            closure: wrapped_closure 
+            closure: wrapped_closure,
+            return_sender: inside_sender,
         };
-        let guard = self.lock.lock();
         self.sender.send(send_message)
             .map_err(|send_error| ExecutionError::CouldNotSendError(Box::new(send_error)))?;
-        let return_value = self.receiver.recv()
+        let return_value = outside_receiver.recv()
             .map_err(ExecutionError::NoResponseError)?;
-        drop(guard);
         let  return_value  = return_value.downcast::<U>().unwrap();
         Ok(*return_value)
     }
