@@ -23,10 +23,10 @@ let mut wrapper = SendWrapperThread::new(make_x);
 
 // Use `wrapper` to interact with `x` from inside a different thread.
 std::thread::spawn(move || {
-    let x_plus_1 = wrapper.execute(|x| {
+    let x_plus_1 = wrapper.execute(|&mut x| {
         // The Box is just for demonstrating wrapping a raw pointer.
         // This doesn't have to be unsafe if you were using different types.
-        let unboxed_x = unsafe { Box::from_raw(*x) };
+        let unboxed_x = unsafe { Box::from_raw(x) };
         *unboxed_x + 1
     }).unwrap();
     assert_eq!(x_plus_1, 42);
