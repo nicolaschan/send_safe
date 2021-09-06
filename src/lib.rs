@@ -44,7 +44,7 @@ mod tests {
         let return_value_mutex_clone = return_value_mutex.clone();
         std::thread::spawn(move || {
             let return_value = send_pointer
-                .execute_consume(|inner| {
+                .execute_move(|inner| {
                     let my_box = unsafe { Box::from_raw(inner) };
                     (Some(inner), *my_box + 1)
                 })
@@ -85,7 +85,7 @@ mod tests {
         let mut wrapper = SendWrapperThread::new(move || receiver);
         assert!(sender.send(()).is_ok());
         assert!(wrapper.is_alive());
-        wrapper.execute_consume(|_inner| (None, ())).unwrap();
+        wrapper.execute_move(|_inner| (None, ())).unwrap();
         assert!(sender.send(()).is_err());
         assert!(wrapper.is_dead());
     }
@@ -93,8 +93,8 @@ mod tests {
     #[test]
     fn test_could_not_send_error() {
         let mut wrapper = SendWrapperThread::new(|| ());
-        wrapper.execute_consume(|_inner| (None, ())).unwrap();
-        let result = wrapper.execute_consume(|_inner| (None, ()));
+        wrapper.execute_move(|_inner| (None, ())).unwrap();
+        let result = wrapper.execute_move(|_inner| (None, ()));
         println!("{:?}", result);
         assert!(matches!(result, Err(ExecutionError::CouldNotSendError(..))));
         format!("{:?}", result); // should implement debug
@@ -105,7 +105,7 @@ mod tests {
     fn test_no_response_error() {
         let mut wrapper = SendWrapperThread::new(|| ());
         let result: Result<usize, ExecutionError> =
-            wrapper.execute_consume(|_inner| panic!("panic!"));
+            wrapper.execute_move(|_inner| panic!("panic!"));
         assert!(matches!(result, Err(ExecutionError::NoResponseError(..))));
         format!("{:?}", result); // should implement debug
         format!("{:#?}", result); // should implement format
@@ -165,7 +165,7 @@ impl<T: 'static> SendWrapperThread<T> {
         }
     }
 
-    pub fn execute_consume<U: Any + Send + 'static>(
+    pub fn execute_move<U: Any + Send + 'static>(
         &mut self,
         closure: impl (FnOnce(T) -> (Option<T>, U)) + Send + 'static,
     ) -> Result<U, ExecutionError> {
@@ -198,11 +198,11 @@ impl<T: 'static> SendWrapperThread<T> {
                 let return_value = closure(&mut inner);
                 (Some(inner), return_value)
             });
-        self.execute_consume(wrapped_closure)
+        self.execute_move(wrapped_closure)
     }
 
     pub fn is_alive(&mut self) -> bool {
-        self.execute_consume(|inner| (Some(inner), ())).is_ok()
+        self.execute_move(|inner| (Some(inner), ())).is_ok()
     }
 
     pub fn is_dead(&mut self) -> bool {
@@ -212,7 +212,7 @@ impl<T: 'static> SendWrapperThread<T> {
 
 impl<T: 'static> Drop for SendWrapperThread<T> {
     fn drop(&mut self) {
-        let result = self.execute_consume(|_inner| (None, ()));
+        let result = self.execute_move(|_inner| (None, ()));
         if result.is_err() {
             // If we couldn't communicate, then it's probably already dropped
             // so do nothing.
