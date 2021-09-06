@@ -121,7 +121,9 @@ impl<T: 'static> SendWrapperThread<T> {
                     Some(new_inner) => {
                         inner = new_inner;
                     },
-                    None => { break; },
+                    None => { 
+                        return; 
+                    },
                 }
             }
         });
