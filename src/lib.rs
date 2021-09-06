@@ -67,6 +67,7 @@ mod tests {
         let mut wrapper = SendWrapperThread::new(|| ());
         wrapper.execute(|_inner| (None, ())).unwrap();
         let result =  wrapper.execute(|_inner| (None, ()));
+        println!("{:?}", result);
         assert!(matches!(result, Err(ExecutionError::CouldNotSendError(..))));
         format!("{:?}", result); // should implement debug
         format!("{:#?}", result); // should implement format
