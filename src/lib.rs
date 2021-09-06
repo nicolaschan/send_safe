@@ -113,18 +113,17 @@ impl<T: 'static> SendWrapperThread<T> {
                 let closure= message.closure;
                 let (inner_option, return_value) = closure(inner);
 
-                // If we cannot send the return values out,
-                // then we should panic because we cannot respond to function calls.
-                inside_sender.send(return_value).expect("Failed to exfiltrate return values"); 
-
                 match inner_option {
                     Some(new_inner) => {
                         inner = new_inner;
+                        inside_sender.send(return_value).expect("Failed to exfiltrate return values"); 
                     },
-                    None => { 
-                        return; 
+                    None => {
+                        drop(inside_receiver);
+                        inside_sender.send(return_value).expect("Failed to exfiltrate return values"); 
+                        return;
                     },
-                }
+                };
             }
         });
         SendWrapperThread {
