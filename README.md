@@ -26,11 +26,11 @@ std::thread::spawn(move || {
     let x_plus_1 = wrapper.execute(|x| {
         // The Box is just for demonstrating wrapping a raw pointer.
         // This doesn't have to be unsafe if you were using different types.
-        let unboxed_x = unsafe { Box::from_raw(x) };
-        (Some(x), *unboxed_x + 1)
+        let unboxed_x = unsafe { Box::from_raw(*x) };
+        *unboxed_x + 1
     }).unwrap();
     assert_eq!(x_plus_1, 42);
-}).join().unwrap();
+}).join().unwrap(
 ```
 
 ## Acknowledgements

@@ -15,6 +15,23 @@ mod tests {
     use crate::{ExecutionError, SendWrapperThread};
 
     #[test]
+    fn test_example() {
+        let make_x = || Box::into_raw(Box::new(41));
+        let mut wrapper = SendWrapperThread::new(make_x);
+
+        // Use `wrapper` to interact with `x` from inside a different thread.
+        std::thread::spawn(move || {
+            let x_plus_1 = wrapper.execute(|x| {
+                // The Box is just for demonstrating wrapping a raw pointer.
+                // This doesn't have to be unsafe if you were using different types.
+                let unboxed_x = unsafe { Box::from_raw(*x) };
+                *unboxed_x + 1
+            }).unwrap();
+            assert_eq!(x_plus_1, 42);
+        }).join().unwrap()
+    }
+
+    #[test]
     fn test_send_pointer() {
         let make_pointer = || {
             let my_box = Box::new(42);
@@ -26,7 +43,7 @@ mod tests {
         let return_value_mutex_clone = return_value_mutex.clone();
         std::thread::spawn(move || {
             let return_value = send_pointer
-                .execute(|inner| {
+                .execute_consume(|inner| {
                     let my_box = unsafe { Box::from_raw(inner) };
                     (Some(inner), *my_box + 1)
                 })
@@ -67,7 +84,7 @@ mod tests {
         let mut wrapper = SendWrapperThread::new(move || receiver);
         assert!(sender.send(()).is_ok());
         assert!(wrapper.is_alive());
-        wrapper.execute(|_inner| (None, ())).unwrap();
+        wrapper.execute_consume(|_inner| (None, ())).unwrap();
         assert!(sender.send(()).is_err());
         assert!(wrapper.is_dead());
     }
@@ -75,8 +92,8 @@ mod tests {
     #[test]
     fn test_could_not_send_error() {
         let mut wrapper = SendWrapperThread::new(|| ());
-        wrapper.execute(|_inner| (None, ())).unwrap();
-        let result = wrapper.execute(|_inner| (None, ()));
+        wrapper.execute_consume(|_inner| (None, ())).unwrap();
+        let result = wrapper.execute_consume(|_inner| (None, ()));
         println!("{:?}", result);
         assert!(matches!(result, Err(ExecutionError::CouldNotSendError(..))));
         format!("{:?}", result); // should implement debug
@@ -86,7 +103,7 @@ mod tests {
     #[test]
     fn test_no_response_error() {
         let mut wrapper = SendWrapperThread::new(|| ());
-        let result: Result<usize, ExecutionError> = wrapper.execute(|_inner| panic!("panic!"));
+        let result: Result<usize, ExecutionError> = wrapper.execute_consume(|_inner| panic!("panic!"));
         assert!(matches!(result, Err(ExecutionError::NoResponseError(..))));
         format!("{:?}", result); // should implement debug
         format!("{:#?}", result); // should implement format
@@ -146,7 +163,7 @@ impl<T: 'static> SendWrapperThread<T> {
         }
     }
 
-    pub fn execute<U: Any + Send + 'static>(
+    pub fn execute_consume<U: Any + Send + 'static>(
         &mut self,
         closure: impl (FnOnce(T) -> (Option<T>, U)) + Send + 'static,
     ) -> Result<U, ExecutionError> {
@@ -170,8 +187,19 @@ impl<T: 'static> SendWrapperThread<T> {
         Ok(*return_value)
     }
 
+    pub fn execute<U: Any + Send + 'static>(
+        &mut self,
+        closure: impl (FnOnce(&mut T) -> U) + Send + 'static,
+    ) -> Result<U, ExecutionError> {
+        let wrapped_closure: Box<dyn (FnOnce(T) -> (Option<T>, U)) + Send + 'static> = Box::new(|mut inner| {
+            let return_value = closure(&mut inner);
+            (Some(inner), return_value)
+        });
+        self.execute_consume(wrapped_closure)
+    }
+
     pub fn is_alive(&mut self) -> bool {
-        self.execute(|inner| (Some(inner), ())).is_ok()
+        self.execute_consume(|inner| (Some(inner), ())).is_ok()
     }
 
     pub fn is_dead(&mut self) -> bool {
@@ -181,7 +209,7 @@ impl<T: 'static> SendWrapperThread<T> {
 
 impl<T: 'static> Drop for SendWrapperThread<T> {
     fn drop(&mut self) {
-        let result = self.execute(|_inner| (None, ()));
+        let result = self.execute_consume(|_inner| (None, ()));
         if result.is_err() {
             // If we couldn't communicate, then it's probably already dropped
             // so do nothing.
